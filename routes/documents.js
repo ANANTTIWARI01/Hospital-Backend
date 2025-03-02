@@ -4,7 +4,7 @@ const router = express.Router();
 const path = require('path');
 const fs = require('fs');
 const { authenticateUser } = require('../middleware/auth');
-const upload = require('../middleware/upload');
+const { cloudinary, upload } = require('../config/cloudinary');
 const Document = require('../models/Document');
 const User = require('../models/User');
 const AccessLog = require('../models/AccessLog');
@@ -14,48 +14,46 @@ const AccessLog = require('../models/AccessLog');
 // @access  Private
 router.post('/upload', authenticateUser, upload.single('file'), async (req, res) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No file uploaded' });
-    }
-    
+    const { title, description, patientId, doctorId, tags, isPrivate } = req.body;
+
+    // Create new document with Cloudinary data
     const newDocument = new Document({
-      userId: req.user.id,
-      filename: req.file.filename,
-      originalName: req.file.originalname,
-      path: req.file.path,
-      mimetype: req.file.mimetype,
-      size: req.file.size,
-      category: req.body.category || 'other'
+      title,
+      description,
+      fileUrl: req.file.path,
+      publicId: req.file.filename,
+      fileType: req.file.mimetype,
+      uploadedBy: req.user.id,
+      patientId,
+      doctorId,
+      tags: tags ? tags.split(',').map(tag => tag.trim()) : [],
+      isPrivate: isPrivate === 'true'
     });
-    
+
     await newDocument.save();
-    
-    res.status(201).json({
-      message: 'Document uploaded successfully',
-      document: {
-        id: newDocument._id,
-        filename: newDocument.originalName,
-        category: newDocument.category,
-        uploadDate: newDocument.uploadDate
-      }
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.json(newDocument);
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send('Server Error');
   }
 });
 
 // @route   GET /api/documents
-// @desc    Get all documents for current user
+// @desc    Get all documents for a user
 // @access  Private
 router.get('/', authenticateUser, async (req, res) => {
   try {
-    const documents = await Document.find({ userId: req.user.id })
-      .select('_id originalName category uploadDate size sharedWith')
-      .sort({ uploadDate: -1 });
-    
+    const documents = await Document.find({
+      $or: [
+        { uploadedBy: req.user.id },
+        { patientId: req.user.id },
+        { doctorId: req.user.id }
+      ]
+    }).sort({ uploadDate: -1 });
     res.json(documents);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send('Server Error');
   }
 });
 

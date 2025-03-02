@@ -47,4 +47,72 @@ router.put('/', authenticateUser, async (req, res) => {
     
     // Update user fields
     allowedUserFields.forEach(field => {
-      if (req.body[field] !== undefined)
+      if (req.body[field] !== undefined) {
+        updateFields[field] = req.body[field];
+      }
+    });
+
+    // Update user document if there are fields to update
+    if (Object.keys(updateFields).length > 0) {
+      await User.findByIdAndUpdate(req.user.id, updateFields, { new: true });
+    }
+
+    // Update profile specific fields
+    const profileFields = {};
+    const allowedFields = req.user.userType === 'patient' ? allowedPatientFields : allowedDoctorFields;
+
+    allowedFields.forEach(field => {
+      if (req.body[field] !== undefined) {
+        profileFields[field] = req.body[field];
+      }
+    });
+
+    let profile;
+    if (req.user.userType === 'patient') {
+      profile = await Patient.findOneAndUpdate(
+        { userId: req.user.id },
+        profileFields,
+        { new: true, upsert: true }
+      );
+    } else if (req.user.userType === 'doctor') {
+      profile = await Doctor.findOneAndUpdate(
+        { userId: req.user.id },
+        profileFields,
+        { new: true, upsert: true }
+      );
+    }
+
+    // Get updated user data
+    const user = await User.findById(req.user.id).select('-password');
+
+    res.json({
+      user,
+      profile
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// @route   DELETE /api/profiles
+// @desc    Delete user profile
+// @access  Private
+router.delete('/', authenticateUser, async (req, res) => {
+  try {
+    // Delete profile based on user type
+    if (req.user.userType === 'patient') {
+      await Patient.findOneAndDelete({ userId: req.user.id });
+    } else if (req.user.userType === 'doctor') {
+      await Doctor.findOneAndDelete({ userId: req.user.id });
+    }
+
+    // Delete user
+    await User.findByIdAndDelete(req.user.id);
+
+    res.json({ message: 'User and profile deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+module.exports = router;
